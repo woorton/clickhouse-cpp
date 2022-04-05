@@ -16,6 +16,7 @@ jobs:
       matrix:
         compiler: [clang-6, gcc-7, gcc-8, gcc-9]
         ssl: [ssl_ON, ssl_OFF]
+        dependencies: [dependencies_SYSTEM, dependencies_BUILT_IN]
         include:
         - compiler: clang-6
           INSTALL: clang-6.0
@@ -39,16 +40,23 @@ jobs:
 
         - ssl: ssl_ON
           INSTALL_SSL: libssl-dev
-          EXTRA_CMAKE_FLAGS: -DWITH_OPENSSL=ON
+          OPENSSL_CMAKE_OPTION: -DWITH_OPENSSL=ON
 
         - ssl: ssl_OFF
-          EXTRA_CMAKE_FLAGS: -DWITH_OPENSSL=OFF
+          OPENSSL_CMAKE_OPTION: -DWITH_OPENSSL=OFF
+
+        - dependencies: dependencies_SYSTEM
+          DEPENDENCIES_CMAKE_OPTIONS: -DWITH_SYSTEM_ABSEIL=ON -DWITH_SYSTEM_LZ4=ON -DWITH_SYSTEM_CITYHASH=ON
+          INSTALL_DEPENDENCIES: libabsl-dev liblz4-dev libcityhash-dev
+
+        - dependencies: dependencies_BUILT_IN
+          DEPENDENCIES_CMAKE_OPTIONS: -DWITH_SYSTEM_ABSEIL=OFF -DWITH_SYSTEM_LZ4=OFF -DWITH_SYSTEM_CITYHASH=OFF
 
     steps:
     - uses: actions/checkout@v2
 
     - name: Install dependencies
-      run: sudo apt-get install -y cmake ${{ matrix.INSTALL }} ${{ matrix.INSTALL_SSL }}
+      run: sudo apt-get install -y cmake ${{ matrix.INSTALL }} ${{ matrix.INSTALL_SSL }} ${{ matrix.INSTALL_DEPENDENCIES }}
 
     - name: Configure CMake
       run: |
@@ -57,7 +65,8 @@ jobs:
           -DCMAKE_CXX_COMPILER=${{ matrix.CXX_COMPILER}} \
           -B ${{github.workspace}}/build \
           -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_TESTS=ON \
-          ${{ matrix.EXTRA_CMAKE_FLAGS }}
+          ${{ matrix.OPENSSL_CMAKE_OPTION}} \
+          ${{ matrix.DEPENDENCIES_CMAKE_OPTIONS }}
 
     - name: Build
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --target all
