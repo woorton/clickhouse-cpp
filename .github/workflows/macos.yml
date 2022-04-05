@@ -19,23 +19,36 @@ jobs:
       fail-fast: false
       matrix:
         build: [nossl, ssl]
+        dependencies: [dependencies_SYSTEM, dependencies_BUILT_IN]
         include:
         - build: nossl
-          extra_cmake_flags: -DWITH_OPENSSL=OFF
-          extra_install: 
+          openssl_cmake_option: -DWITH_OPENSSL=OFF
 
         - build: ssl
-          extra_cmake_flags: -DWITH_OPENSSL=ON -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl/
-          extra_install: openssl
+          openssl_cmake_option: -DWITH_OPENSSL=ON -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl/
+          openssl_install: openssl
+
+        - dependencies: dependencies_SYSTEM
+          dependencies_cmake_options: -DWITH_SYSTEM_ABSEIL=ON -DWITH_SYSTEM_LZ4=ON -DWITH_SYSTEM_CITYHASH=ON
+          dependencies_install: abseil lz4 cityhash
+
+        - dependencies: dependencies_BUILT_IN
+          dependencies_cmake_options: -DWITH_SYSTEM_ABSEIL=OFF -DWITH_SYSTEM_LZ4=OFF -DWITH_SYSTEM_CITYHASH=OFF
+
 
     steps:
     - uses: actions/checkout@v2
 
     - name: Install dependencies
-      run: brew install cmake ${{matrix.extra_install}}
+      run: brew install cmake ${{matrix.openssl_install}} ${{matrix.dependencies_install}}
 
     - name: Configure CMake
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_TESTS=ON ${{matrix.extra_cmake_flags}}
+      run: cmake \
+              -B ${{github.workspace}}/build \
+              -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+              -DBUILD_TESTS=ON \
+              ${{matrix.openssl_cmake_option}} \
+              ${{matrix.dependencies_cmake_options}}
 
     - name: Build
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --target all
