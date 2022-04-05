@@ -1,6 +1,6 @@
 #include "types.h"
 
-#include <cityhash/city.h>
+#include <city.h>
 
 #include <stdexcept>
 

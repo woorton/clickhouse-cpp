@@ -7,6 +7,9 @@ INCLUDE (cmake/openssl.cmake)
 OPTION (BUILD_BENCHMARK "Build benchmark" OFF)
 OPTION (BUILD_TESTS "Build tests" OFF)
 OPTION (WITH_OPENSSL "Use OpenSSL for TLS connections" OFF)
+OPTION (USE_SYSTEM_ABSEIL "Use system ABSEIL" OFF)
+OPTION (USE_SYSTEM_LZ4 "Use system LZ4" OFF)
+OPTION (USE_SYSTEM_CITYHASH "Use contrib cityhash" OFF)
 
 PROJECT (CLICKHOUSE-CLIENT)
 
@@ -27,13 +30,30 @@ PROJECT (CLICKHOUSE-CLIENT)
     ENDIF ()
 
     INCLUDE_DIRECTORIES (.)
-    INCLUDE_DIRECTORIES (contrib)
+
+    IF (USE_SYSTEM_ABSEIL)
+        FIND_PACKAGE(absl REQUIRED)
+    ELSE ()
+        INCLUDE_DIRECTORIES (contrib/absl)
+        SUBDIRS (contrib/absl/absl)
+    ENDIF ()
+
+    IF (USE_SYSTEM_LZ4)
+        FIND_PACKAGE(lz4 REQUIRED)
+    ELSE ()
+        INCLUDE_DIRECTORIES (contrib/lz4/lz4)
+        SUBDIRS (contrib/lz4/lz4)
+    ENDIF ()
+
+    IF (USE_SYSTEM_CITYHASH)
+        FIND_PACKAGE(cityhash REQUIRED)
+    ELSE ()
+        INCLUDE_DIRECTORIES (contrib/cityhash/cityhash)
+        SUBDIRS (contrib/cityhash/cityhash)
+    ENDIF ()
 
     SUBDIRS (
         clickhouse
-        contrib/absl
-        contrib/cityhash
-        contrib/lz4
     )
 
     IF (BUILD_BENCHMARK)
