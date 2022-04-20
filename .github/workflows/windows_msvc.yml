@@ -7,6 +7,9 @@ on:
     branches: [ master ]
 
 env:
+  CONAN_USER_HOME: "${{ github.workspace }}/conan/"
+  CONAN_USER_HOME_SHORT: "${{ github.workspace }}/conan/short"
+
   BUILD_TYPE: Release
   GTEST_FILTER: --gtest_filter=-"*"
   CLICKHOUSE_USER: clickhouse_cpp_cicd
@@ -34,15 +37,54 @@ jobs:
   build:
     runs-on: windows-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        ssl: [ssl_ON, ssl_OFF]
+        dependencies: [dependencies_SYSTEM, dependencies_BUILT_IN]
+        include:
+        - ssl: ssl_ON
+          SSL_CONAN_OPTION: -o with_ssl=True
+
+        - ssl: ssl_OFF
+          SSL_CONAN_OPTION: -o with_ssl=False
+
+        - dependencies: dependencies_SYSTEM
+          DEPENDENCIES_CONAN_OPTIONS: >
+            -o with_system_lz4=True
+            -o with_system_cityhash=True
+            -o with_system_abseil=True
+
+        - dependencies: dependencies_BUILT_IN
+          DEPENDENCIES_CONAN_OPTIONS: >
+            -o with_system_lz4=False
+            -o with_system_cityhash=False
+            -o with_system_abseil=False
+
     steps:
     - uses: actions/checkout@v2
     - uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Configure CMake
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_TESTS=ON
+    - uses: turtlebrowser/get-conan@main
 
-    - name: Build
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+    - uses: actions/cache@v3.0.2
+      with:
+        key: host-${{ runner.os }}-target-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
+        path: ${{env.CONAN_USER_HOME}}
+
+    - name: Configure & Build project
+      run: |
+        mkdir -p ${{github.workspace}}/build && cd ${{github.workspace}}/build
+
+        conan install \
+          -o build_tests=True \
+          ${{matrix.SSL_CONAN_OPTION}} \
+          ${{matrix.DEPENDENCIES_CONAN_OPTIONS}} \
+          -s build_type=${{env.BUILD_TYPE}} \
+          -b missing \
+          ${{github.workspace}}
+
+        conan build ${{github.workspace}}
 
     - name: Start tls offoader proxy
       shell: bash
@@ -56,5 +98,5 @@ jobs:
             ./go-tlsoffloader.exe -l localhost:9000 -b github.demo.trial.altinity.cloud:9440 &
 
     - name: Test
-      working-directory: ${{github.workspace}}/build/ut
+      working-directory: ${{github.workspace}}/build/bin
       run: Release\clickhouse-cpp-ut.exe "${{env.GTEST_FILTER}}"

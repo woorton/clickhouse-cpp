@@ -9,6 +9,7 @@ on:
 env:
   BUILD_TYPE: Release
   CH_SERVER_VERSION: 21.3.17.2
+  CONAN_USER_HOME: "${{ github.workspace }}/conan/"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,56 +21,79 @@ jobs:
         include:
         - compiler: clang-6
           INSTALL: clang-6.0
-          C_COMPILER: clang-6.0
-          CXX_COMPILER: clang++-6.0
+          COMPILER_CONAN_SETTING: >
+            -s compiler=clang
+            -s compiler.version=6
+            -s compiler.libcxx=libc++
+            -e CC=clang-6.0 -e CXX=clang++-6.0
 
         - compiler: gcc-7
           INSTALL: gcc-7 g++-7
-          C_COMPILER: gcc-7
-          CXX_COMPILER: g++-7
+          COMPILER_CONAN_SETTING: >
+            -s compiler=gcc
+            -s compiler.version=7
+            -s compiler.libcxx=libstdc++11
 
         - compiler: gcc-8
           INSTALL: gcc-8 g++-8
-          C_COMPILER: gcc-8
-          CXX_COMPILER: g++-8
+          COMPILER_CONAN_SETTING: >
+            -s compiler=gcc
+            -s compiler.version=8
+            -s compiler.libcxx=libstdc++11
 
         - compiler: gcc-9
           INSTALL: gcc-9 g++-9
-          C_COMPILER: gcc-9
-          CXX_COMPILER: g++-9
+          COMPILER_CONAN_SETTING: >
+            -s compiler=gcc
+            -s compiler.version=9
+            -s compiler.libcxx=libstdc++11
 
         - ssl: ssl_ON
-          INSTALL_SSL: libssl-dev
-          OPENSSL_CMAKE_OPTION: -DWITH_OPENSSL=ON
+          SSL_CONAN_OPTION: -o with_ssl=True
 
         - ssl: ssl_OFF
-          OPENSSL_CMAKE_OPTION: -DWITH_OPENSSL=OFF
+          SSL_CONAN_OPTION: -o with_ssl=False
 
         - dependencies: dependencies_SYSTEM
-          DEPENDENCIES_CMAKE_OPTIONS: -DWITH_SYSTEM_ABSEIL=ON -DWITH_SYSTEM_LZ4=ON -DWITH_SYSTEM_CITYHASH=ON
-          INSTALL_DEPENDENCIES: libabsl-dev liblz4-dev libcityhash-dev
+          DEPENDENCIES_CONAN_OPTIONS: >
+            -o with_system_lz4=True
+            -o with_system_cityhash=True
+            -o with_system_abseil=True
 
         - dependencies: dependencies_BUILT_IN
-          DEPENDENCIES_CMAKE_OPTIONS: -DWITH_SYSTEM_ABSEIL=OFF -DWITH_SYSTEM_LZ4=OFF -DWITH_SYSTEM_CITYHASH=OFF
+          DEPENDENCIES_CONAN_OPTIONS: >
+            -o with_system_lz4=False
+            -o with_system_cityhash=False
+            -o with_system_abseil=False
 
     steps:
     - uses: actions/checkout@v2
 
+    - uses: turtlebrowser/get-conan@main
+
+    - uses: actions/cache@v3.0.2
+      with:
+        key: host-${{ runner.os }}-target-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
+        path: ${{env.CONAN_USER_HOME}}
+
     - name: Install dependencies
-      run: sudo apt-get install -y cmake ${{ matrix.INSTALL }} ${{ matrix.INSTALL_SSL }} ${{ matrix.INSTALL_DEPENDENCIES }}
-
-    - name: Configure CMake
       run: |
-        cmake \
-          -DCMAKE_C_COMPILER=${{ matrix.C_COMPILER}} \
-          -DCMAKE_CXX_COMPILER=${{ matrix.CXX_COMPILER}} \
-          -B ${{github.workspace}}/build \
-          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_TESTS=ON \
-          ${{ matrix.OPENSSL_CMAKE_OPTION}} \
-          ${{ matrix.DEPENDENCIES_CMAKE_OPTIONS }}
+        sudo apt-get install -y cmake ${{matrix.INSTALL}}
 
-    - name: Build
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --target all
+    - name: Configure & Build project
+      run: |
+        mkdir -p ${{github.workspace}}/build && cd ${{github.workspace}}/build
+
+        conan install \
+          -o build_tests=True \
+          ${{matrix.SSL_CONAN_OPTION}} \
+          ${{matrix.DEPENDENCIES_CONAN_OPTIONS}} \
+          -s build_type=${{env.BUILD_TYPE}} \
+          ${{matrix.COMPILER_CONAN_SETTING}} \
+          -b missing \
+          ${{github.workspace}}
+
+        conan build ${{github.workspace}}
 
     - name: Start ClickHouse server
       run: |
@@ -84,5 +108,5 @@ jobs:
         sudo service clickhouse-server start
 
     - name: Test
-      working-directory: ${{github.workspace}}/build/ut
+      working-directory: ${{github.workspace}}/build/bin
       run: ./clickhouse-cpp-ut
