@@ -10,7 +10,7 @@ env:
   BUILD_TYPE: Release
   CLICKHOUSE_USER: clickhouse_cpp_cicd
   CLICKHOUSE_PASSWORD: clickhouse_cpp_cicd
-
+  CONAN_USER_HOME: "${{ github.workspace }}/conan/"
 jobs:
   build:
     runs-on: macos-latest
@@ -18,40 +18,57 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build: [nossl, ssl]
+        ssl: [ssl_ON, ssl_OFF]
         dependencies: [dependencies_SYSTEM, dependencies_BUILT_IN]
         include:
-        - build: nossl
-          openssl_cmake_option: -DWITH_OPENSSL=OFF
+        - ssl: ssl_ON
+          # Install brew openssl to gain access to system certificates, but link with the
+          # conan version
+          SSL_BREW_INSTALL: openssl
+          SSL_CONAN_OPTION: -o with_openssl=True -o openssl:openssldir=/usr/local/etc/openssl@3
 
-        - build: ssl
-          openssl_cmake_option: -DWITH_OPENSSL=ON -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl/
-          openssl_install: openssl
+        - ssl: ssl_OFF
+          SSL_CONAN_OPTION: -o with_openssl=False
 
         - dependencies: dependencies_SYSTEM
-          dependencies_cmake_options: -DWITH_SYSTEM_ABSEIL=ON -DWITH_SYSTEM_LZ4=ON -DWITH_SYSTEM_CITYHASH=ON
-          dependencies_install: abseil lz4 cityhash
+          DEPENDENCIES_CONAN_OPTIONS: >-
+            -o with_system_lz4=True
+            -o with_system_cityhash=True
+            -o with_system_abseil=True
 
         - dependencies: dependencies_BUILT_IN
-          dependencies_cmake_options: -DWITH_SYSTEM_ABSEIL=OFF -DWITH_SYSTEM_LZ4=OFF -DWITH_SYSTEM_CITYHASH=OFF
-
+          DEPENDENCIES_CONAN_OPTIONS: >-
+            -o with_system_lz4=False
+            -o with_system_cityhash=False
+            -o with_system_abseil=False
 
     steps:
     - uses: actions/checkout@v2
 
+    - uses: turtlebrowser/get-conan@main
+
+    - uses: actions/cache@v3.0.2
+      with:
+        key: ${{runner.os}}-${{matrix.ssl}}-${{matrix.dependencies}}-${{hashFiles('conanfile.py')}}
+        path: ${{env.CONAN_USER_HOME}}
+
     - name: Install dependencies
-      run: brew install cmake ${{matrix.openssl_install}} ${{matrix.dependencies_install}}
+      run: |
+        brew install cmake ${{matrix.SSL_BREW_INSTALL}} 
 
-    - name: Configure CMake
-      run: cmake \
-              -B ${{github.workspace}}/build \
-              -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
-              -DBUILD_TESTS=ON \
-              ${{matrix.openssl_cmake_option}} \
-              ${{matrix.dependencies_cmake_options}}
+    - name: Configure & Build project
+      run: |
+        mkdir -p ${{github.workspace}}/build && cd ${{github.workspace}}/build
 
-    - name: Build
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --target all
+        conan install \
+          -o build_tests=True \
+          ${{matrix.SSL_CONAN_OPTION}} \
+          ${{matrix.DEPENDENCIES_CONAN_OPTIONS}} \
+          -s build_type=${{env.BUILD_TYPE}} \
+          -b missing \
+          ${{github.workspace}}
+
+        conan build ${{github.workspace}}
 
     - name: Start tls offoader proxy
       # that mimics non-secure clickhouse running on localhost
